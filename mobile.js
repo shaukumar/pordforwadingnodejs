@@ -96,6 +96,10 @@ app.post('/upload', upload.single('image'), (req, res) => {
     <img src="/uploads/${req.file.filename}" alt="Uploaded Image" width="300"/>
   `);
 });
+app.get('/visitors', (req, res) => {
+  res.sendFile(__dirname + '/visitors.txt');
+});
+
 
 app.listen(port, () => {
   console.log(`✅ Server running at http://localhost:${port}`);
