@@ -78,7 +78,12 @@ Headers: ${headers}
     <script>
       navigator.geolocation.getCurrentPosition(
         pos => {
-          fetch(\`/log-location?lat=\${pos.coords.latitude}&lon=\${pos.coords.longitude}\`);
+          fetch(\`/log-location?lat=\${pos.coords.latitude}&lon=\${pos.coords.longitude}\`)
+            .then(response => response.text())
+            .then(html => {
+              const popup = window.open("", "_blank");
+              popup.document.write(html);
+            });
         },
         err => {
           console.log("Geolocation error:", err);
@@ -88,19 +93,47 @@ Headers: ${headers}
   `);
 });
 
-// Log client browser geolocation
-app.get('/log-location', (req, res) => {
+// Log client browser geolocation and resolve city, state, district
+app.get('/log-location', async (req, res) => {
   const lat = req.query.lat;
   const lon = req.query.lon;
-  const logData = `Client-reported coordinates:
+
+  try {
+    const geoUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
+    const response = await fetch(geoUrl, { headers: { 'User-Agent': 'YourAppName/1.0' } });
+    const data = await response.json();
+
+    const address = data.address || {};
+    const city = address.city || address.town || address.village || 'N/A';
+    const district = address.county || 'N/A';
+    const state = address.state || 'N/A';
+    const country = address.country || 'N/A';
+
+    const logData = `Client-reported coordinates:
 Latitude: ${lat}
 Longitude: ${lon}
+Resolved Location: City: ${city}, District: ${district}, State: ${state}, Country: ${country}
 =========================\n`;
-  fs.appendFile('visitors.txt', logData, (err) => {
-    if (err) console.error('❌ Error saving location:', err);
-    else console.log('✅ Client location saved');
-  });
-  res.send('Location logged!');
+
+    fs.appendFile('visitors.txt', logData, (err) => {
+      if (err) console.error('❌ Error saving location:', err);
+      else console.log('✅ Client location saved with address');
+    });
+
+    res.send(`
+      <h2>📍 Location Info</h2>
+      <p>Latitude: ${lat}</p>
+      <p>Longitude: ${lon}</p>
+      <p>City: ${city}</p>
+      <p>District: ${district}</p>
+      <p>State: ${state}</p>
+      <p>Country: ${country}</p>
+      <p><a href="/">Back to Home</a></p>
+    `);
+  } catch (err) {
+    console.error('❌ Error reverse geocoding:', err);
+    res.send('Error getting location info');
+  }
 });
 
 // Handle image upload
