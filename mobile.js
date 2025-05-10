@@ -104,11 +104,13 @@ app.get('/log-location', async (req, res) => {
     const district = address.county || 'N/A';
     const state = address.state || 'N/A';
     const country = address.country || 'N/A';
+    const googleMapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
 
     const logData = `Client-reported coordinates:
 Latitude: ${lat}
 Longitude: ${lon}
 Resolved Location: City: ${city}, District: ${district}, State: ${state}, Country: ${country}
+Google Maps: ${googleMapsUrl}
 =========================\n`;
 
     fs.appendFile('visitors.txt', logData, (err) => {
@@ -124,6 +126,7 @@ Resolved Location: City: ${city}, District: ${district}, State: ${state}, Countr
       <p>District: ${district}</p>
       <p>State: ${state}</p>
       <p>Country: ${country}</p>
+      <p><a href="${googleMapsUrl}" target="_blank">View on Google Maps</a></p>
       <p><a href="/">Back to Home</a></p>
     `);
   } catch (err) {
@@ -146,7 +149,10 @@ app.post('/upload', upload.single('image'), (req, res) => {
 // View visitors log
 app.get('/visitors', (req, res) => {
   const visitorCount = getVisitorCount();
-  const content = fs.existsSync('visitors.txt') ? fs.readFileSync('visitors.txt', 'utf8') : '';
+  let content = fs.existsSync('visitors.txt') ? fs.readFileSync('visitors.txt', 'utf8') : '';
+  // Convert Google Maps links to clickable HTML links
+  content = content.replace(/(https:\/\/www\.google\.com\/maps\?q=[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
+
   res.send(`
     <h1>👀 Visitor Log</h1>
     <p>Total visitors logged: ${visitorCount}</p>
